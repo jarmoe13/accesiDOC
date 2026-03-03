@@ -18,10 +18,62 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- FUNKCJE POMOCNICZE ---
-def process_pdf(file_bytes):
-    """Prosty rentgen PDF-a przy użyciu PyMuPDF"""
+def process_pdf_real_xray(file_bytes):
+    """Prawdziwy, głęboki rentgen pliku PDF zgodny z PDF/UA"""
     doc = fitz.open(stream=file_bytes, filetype="pdf")
+    catalog = doc.pdf_catalog() # Pobieramy główny katalog struktury PDF
+    
+    # 1. TEST TAGÓW (Tagged PDF)
+    # Szukamy słownika MarkInfo. Jeśli Marked jest True, plik ma tagi.
+    mark_info_type, mark_info_val = doc.xref_get_key(catalog, "MarkInfo")
+    is_tagged = False
+    if mark_info_type != "null" and "Marked" in mark_info_val:
+        is_tagged = True
+        
+    # 2. TEST JĘZYKA (Document Language)
+    lang_type, lang_val = doc.xref_get_key(catalog, "Lang")
+    document_language = lang_val.replace("/", "") if lang_type != "null" else None
+    
+    # 3. TEST TYTUŁU (Metadata Title)
     metadata = doc.metadata
+    has_title = True if metadata.get("title") else False
+    
+    # 4. TEST ZAWARTOŚCI I OBRAZÓW (Skanowanie pierwszych stron)
+    pages_to_scan = min(5, len(doc)) # Skanujemy max 5 pierwszych stron dla szybkości dema
+    images_found = []
+    is_scanned_document = True # Zakładamy pesymistycznie, że to płaski skan
+    
+    for page_num in range(pages_to_scan):
+        page = doc.load_page(page_num)
+        
+        # Sprawdzamy, czy na stronie jest jakikolwiek "prawdziwy" tekst
+        text_length = len(page.get_text("text").strip())
+        if text_length > 50: 
+            is_scanned_document = False # Znaleźliśmy tekst, to nie jest tylko zdjęcie!
+            
+        # Zbieramy obrazki (które będą potrzebować Alt-Textów)
+        image_list = page.get_images(full=True)
+        for img_index, img in enumerate(image_list):
+            images_found.append({
+                "page": page_num + 1, 
+                "img_xref": img[0], # Prawdziwe ID obrazka w strukturze pliku!
+                "width": img[2],
+                "height": img[3]
+            })
+
+    # Generujemy raport końcowy z audytu (nasz zbiór twardych danych)
+    audit_report = {
+        "pages": len(doc),
+        "is_tagged": is_tagged,
+        "language": document_language,
+        "has_title": has_title,
+        "is_scanned": is_scanned_document,
+        "images_count": len(images_found),
+        "images_details": images_found,
+        "doc_ref": doc # Przekazujemy referencję do renderowania w UI
+    }
+    
+    return audit_report
     
     # Symulacja znalezienia obrazków (do Alt-textów)
     images_found = []
