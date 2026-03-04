@@ -29,6 +29,85 @@ def setup_verapdf():
     engine_dir = os.path.abspath("verapdf-engine")
     
     if not os.path.exists(engine_dir):
+        zip_url = "https://software.verapdf.org/releases/1.26/verapdf-greenfield-1.26.5-installer.zip"
+        zip_path = "verapdf_installer.zip"
+        extract_dir = "verapdf_temp_extract"
+        
+        with st.spinner("Pobieranie i cicha instalacja silnika VeraPDF... to potrwa około 30 sekund. ☕"):
+            try:
+                # 1. Pobieranie prawidłowego instalatora
+                r = requests.get(zip_url, stream=True)
+                with open(zip_path, "wb") as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                
+                # 2. Rozpakowanie instalatora
+                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                    zip_ref.extractall(extract_dir)
+                
+                # 3. Tworzenie pliku XML dla instalacji "Headless"
+                auto_install_xml = f"""<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<AutomatedInstallation langpack="eng">
+    <com.izforge.izpack.panels.htmlhello.HTMLHelloPanel id="welcome"/>
+    <com.izforge.izpack.panels.target.TargetPanel id="install_dir">
+        <installpath>{engine_dir}</installpath>
+    </com.izforge.izpack.panels.target.TargetPanel>
+    <com.izforge.izpack.panels.packs.PacksPanel id="sdk_pack_select">
+        <pack index="0" name="veraPDF GUI" selected="true"/>
+        <pack index="1" name="veraPDF Mac and *nix Scripts" selected="true"/>
+        <pack index="2" name="veraPDF Validation model" selected="false"/>
+        <pack index="3" name="veraPDF Documentation" selected="false"/>
+        <pack index="4" name="veraPDF Sample Plugins" selected="false"/>
+    </com.izforge.izpack.panels.packs.PacksPanel>
+    <com.izforge.izpack.panels.install.InstallPanel id="install"/>
+    <com.izforge.izpack.panels.finish.FinishPanel id="finish"/>
+</AutomatedInstallation>"""
+                
+                xml_path = "auto-install.xml"
+                with open(xml_path, "w", encoding="utf-8") as f:
+                    f.write(auto_install_xml)
+                
+                # 4. Znalezienie pliku instalatora .jar
+                installer_jar = None
+                for root_dir, dirs, files in os.walk(extract_dir):
+                    for file in files:
+                        if file.startswith("verapdf-izpack-installer") and file.endswith(".jar"):
+                            installer_jar = os.path.join(root_dir, file)
+                            break
+                
+                if not installer_jar:
+                    st.error("Nie znaleziono pliku instalatora Java wewnątrz ZIP.")
+                    return False
+                
+                # 5. Odpalenie instalacji Javy pod maską
+                subprocess.run(["java", "-jar", installer_jar, xml_path], check=True)
+                
+                # 6. Sprzątanie plików tymczasowych
+                os.remove(zip_path)
+                os.remove(xml_path)
+                shutil.rmtree(extract_dir)
+                
+                # 7. Uprawnienia na chmurze (Streamlit/Linux)
+                if os.name != 'nt':
+                    executable_path = os.path.join(engine_dir, "verapdf")
+                    if os.path.exists(executable_path):
+                        os.chmod(executable_path, 0o755)
+                        
+            except Exception as e:
+                st.error(f"Szczegółowy błąd instalacji: {e}")
+                return False
+    return True
+
+# Uruchamiamy instalator przy starcie aplikacji
+setup_verapdf()
+
+# --- AUTOMATYCZNY INSTALATOR VERAPDF ---
+@st.cache_resource
+def setup_verapdf():
+    """Pobiera i instaluje silnik VeraPDF w locie za pomocą cichej instalacji (IzPack)."""
+    engine_dir = os.path.abspath("verapdf-engine")
+    
+    if not os.path.exists(engine_dir):
         # Prawidłowy, bezpośredni link z oficjalnego serwera produkcyjnego VeraPDF
         zip_url = "https://software.verapdf.org/releases/1.26/verapdf-greenfield-1.26.5-installer.zip"
         zip_path = "verapdf_installer.zip"
