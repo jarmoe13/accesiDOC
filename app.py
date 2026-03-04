@@ -52,20 +52,12 @@ def setup_verapdf():
                 with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                     zip_ref.extractall(extract_dir)
                 
-                # Tworzenie pliku XML dla cichej instalacji
+                # POPRAWIONY PLIK XML (Minimalistyczny i bezpieczny)
                 auto_install_xml = f"""<?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <AutomatedInstallation langpack="eng">
-    <com.izforge.izpack.panels.htmlhello.HTMLHelloPanel id="welcome"/>
-    <com.izforge.izpack.panels.target.TargetPanel id="install_dir">
+    <com.izforge.izpack.panels.target.TargetPanel id="target">
         <installpath>{engine_dir}</installpath>
     </com.izforge.izpack.panels.target.TargetPanel>
-    <com.izforge.izpack.panels.packs.PacksPanel id="sdk_pack_select">
-        <pack index="0" name="veraPDF GUI" selected="true"/>
-        <pack index="1" name="veraPDF Mac and *nix Scripts" selected="true"/>
-        <pack index="2" name="veraPDF Validation model" selected="false"/>
-        <pack index="3" name="veraPDF Documentation" selected="false"/>
-        <pack index="4" name="veraPDF Sample Plugins" selected="false"/>
-    </com.izforge.izpack.panels.packs.PacksPanel>
     <com.izforge.izpack.panels.install.InstallPanel id="install"/>
     <com.izforge.izpack.panels.finish.FinishPanel id="finish"/>
 </AutomatedInstallation>"""
@@ -86,8 +78,16 @@ def setup_verapdf():
                     st.error("Nie znaleziono pliku instalatora Java wewnątrz ZIP.")
                     return False
                 
-                # Uruchomienie instalacji
-                subprocess.run(["java", "-jar", installer_jar, xml_path], check=True)
+                # Uruchomienie instalacji z dodanym trybem Headless i łapaniem logów!
+                try:
+                    subprocess.run(
+                        ["java", "-Djava.awt.headless=true", "-jar", installer_jar, xml_path], 
+                        capture_output=True, text=True, check=True
+                    )
+                except subprocess.CalledProcessError as e:
+                    # Jeśli znowu zginie, to przynajmniej wyrzuci nam pełne logi od Javy
+                    st.error(f"🚨 Java przerwała instalację. Szczegóły błędu:\nSTDOUT: {e.stdout}\nSTDERR: {e.stderr}")
+                    return False
                 
                 # Sprzątanie
                 os.remove(zip_path)
@@ -104,7 +104,7 @@ def setup_verapdf():
                 st.error(f"Szczegółowy błąd instalacji: {e}")
                 return False
     return True
-
+    
 # --- INICJALIZACJA ---
 setup_verapdf()
 
