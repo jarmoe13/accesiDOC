@@ -98,9 +98,6 @@ def setup_verapdf():
                 return False
     return True
 
-# Uruchamiamy instalator przy starcie aplikacji
-setup_verapdf()
-
 # --- AUTOMATYCZNY INSTALATOR VERAPDF ---
 @st.cache_resource
 def setup_verapdf():
