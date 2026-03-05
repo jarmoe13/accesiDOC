@@ -33,7 +33,7 @@ def check_engine():
     # Szukamy naszego pliku cli-*.jar (niezależnie od numeru wersji)
     cli_jars = glob.glob("cli-*.jar")
     if not cli_jars:
-        st.error("🚨 Brak pliku silnika! Wgraj plik cli-1.31.16.jar na GitHuba.")
+        st.error("🚨 Brak pliku silnika! Wgraj plik cli-*.jar (np. cli-1.31.16.jar) na GitHuba.")
         st.stop()
         
     return cli_jars[0] # Zwraca nazwę znalezionego pliku
@@ -57,16 +57,13 @@ def run_verapdf_audit(file_bytes):
     ]
     
     try:
-        process = subprocess.run(command, capture_output=True, text=True, check=True)
+        # UWAGA: Usunęliśmy check=True! 
+        # Dzięki temu Python nie rzuca błędem, gdy VeraPDF znajdzie problemy z dostępnością.
+        process = subprocess.run(command, capture_output=True, text=True)
         xml_output = process.stdout
-    except subprocess.CalledProcessError as e:
-        os.remove(tmp_pdf_path)
-        # TUTAJ JEST ZMIANA - Łapiemy wszystko jak leci!
-        pelny_blad = f"STDOUT: {e.stdout} | STDERR: {e.stderr}"
-        return {"is_compliant": False, "errors": [{"rule": "Logi Crashu Javy", "description": pelny_blad, "count": 1}]}
     except Exception as e:
         os.remove(tmp_pdf_path)
-        return {"is_compliant": False, "errors": [{"rule": "Inny błąd Pythona", "description": str(e), "count": 1}]}
+        return {"is_compliant": False, "errors": [{"rule": "Błąd Wykonania", "description": str(e), "count": 1}]}
 
     errors_found = []
     is_compliant = False
@@ -100,6 +97,7 @@ def run_verapdf_audit(file_bytes):
     return {"is_compliant": is_compliant, "errors": errors_found}
 
 def render_page_image(file_bytes, page_num):
+    """Renderuje podgląd strony PDF dla asystenta AI"""
     doc = fitz.open(stream=file_bytes, filetype="pdf")
     page = doc.load_page(page_num - 1)
     pix = page.get_pixmap(matrix=fitz.Matrix(2, 2)) 
@@ -121,6 +119,7 @@ with tab1:
         with st.spinner("Skanowanie binarne przez silnik VeraPDF..."):
             audit_results = run_verapdf_audit(file_bytes)
             
+            # Zapis danych do sesji dla zakładki nr 2
             st.session_state['file_bytes'] = file_bytes
             st.session_state['file_name'] = uploaded_file.name
             st.session_state['audit_results'] = audit_results
