@@ -1,10 +1,9 @@
 import os
 import shutil
-import requests
-import zipfile
 import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
+import glob
 import pandas as pd
 import streamlit as st
 import fitz  # PyMuPDF
@@ -23,103 +22,35 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- AUTOMATYCZNY INSTALATOR VERAPDF ---
+# --- INICJALIZACJA SILNIKA ---
 @st.cache_resource
-def setup_verapdf():
-    """Pobiera i instaluje silnik VeraPDF w locie."""
-    
-    # 1. Zabezpieczenie: Sprawdzamy czy na serwerze jest Java!
+def check_engine():
+    """Sprawdza, czy mamy Javę i nasz plik CLI na serwerze."""
     if not shutil.which("java"):
-        st.error("🚨 KRYTYCZNY BŁĄD: Brak Javy na serwerze! Upewnij się, że masz na GitHubie plik `packages.txt` z wpisem `default-jre`.")
+        st.error("🚨 KRYTYCZNY BŁĄD: Brak Javy! Dodaj plik packages.txt z wpisem default-jre.")
         st.stop()
         
-    engine_dir = os.path.abspath("verapdf-engine")
-    
-    if not os.path.exists(engine_dir):
-        zip_url = "https://software.verapdf.org/releases/1.26/verapdf-greenfield-1.26.5-installer.zip"
-        zip_path = "verapdf_installer.zip"
-        extract_dir = "verapdf_temp_extract"
+    # Szukamy naszego pliku cli-*.jar (niezależnie od numeru wersji)
+    cli_jars = glob.glob("cli-*.jar")
+    if not cli_jars:
+        st.error("🚨 Brak pliku silnika! Wgraj plik cli-1.31.16.jar na GitHuba.")
+        st.stop()
         
-        with st.spinner("Pobieranie i cicha instalacja silnika VeraPDF... to potrwa około 30 sekund. ☕"):
-            try:
-                # Pobieranie
-                r = requests.get(zip_url, stream=True)
-                with open(zip_path, "wb") as f:
-                    for chunk in r.iter_content(chunk_size=8192):
-                        f.write(chunk)
-                
-                # Rozpakowanie
-                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                    zip_ref.extractall(extract_dir)
-                
-                # POPRAWIONY PLIK XML (Minimalistyczny i bezpieczny)
-                auto_install_xml = f"""<?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<AutomatedInstallation langpack="eng">
-    <com.izforge.izpack.panels.target.TargetPanel id="target">
-        <installpath>{engine_dir}</installpath>
-    </com.izforge.izpack.panels.target.TargetPanel>
-    <com.izforge.izpack.panels.install.InstallPanel id="install"/>
-    <com.izforge.izpack.panels.finish.FinishPanel id="finish"/>
-</AutomatedInstallation>"""
-                
-                xml_path = "auto-install.xml"
-                with open(xml_path, "w", encoding="utf-8") as f:
-                    f.write(auto_install_xml)
-                
-                # Szukanie pliku .jar instalatora
-                installer_jar = None
-                for root_dir, dirs, files in os.walk(extract_dir):
-                    for file in files:
-                        if file.startswith("verapdf-izpack-installer") and file.endswith(".jar"):
-                            installer_jar = os.path.join(root_dir, file)
-                            break
-                
-                if not installer_jar:
-                    st.error("Nie znaleziono pliku instalatora Java wewnątrz ZIP.")
-                    return False
-                
-                # Uruchomienie instalacji z dodanym trybem Headless i łapaniem logów!
-                try:
-                    subprocess.run(
-                        ["java", "-Djava.awt.headless=true", "-jar", installer_jar, xml_path], 
-                        capture_output=True, text=True, check=True
-                    )
-                except subprocess.CalledProcessError as e:
-                    # Jeśli znowu zginie, to przynajmniej wyrzuci nam pełne logi od Javy
-                    st.error(f"🚨 Java przerwała instalację. Szczegóły błędu:\nSTDOUT: {e.stdout}\nSTDERR: {e.stderr}")
-                    return False
-                
-                # Sprzątanie
-                os.remove(zip_path)
-                os.remove(xml_path)
-                shutil.rmtree(extract_dir)
-                
-                # Uprawnienia (Linux/Streamlit)
-                if os.name != 'nt':
-                    executable_path = os.path.join(engine_dir, "verapdf")
-                    if os.path.exists(executable_path):
-                        os.chmod(executable_path, 0o755)
-                        
-            except Exception as e:
-                st.error(f"Szczegółowy błąd instalacji: {e}")
-                return False
-    return True
-    
-# --- INICJALIZACJA ---
-setup_verapdf()
+    return cli_jars[0] # Zwraca nazwę znalezionego pliku
+
+# Zapisujemy nazwę pliku jar do zmiennej globalnej
+CLI_JAR_PATH = check_engine()
 
 # --- FUNKCJE SILNIKA ---
 def run_verapdf_audit(file_bytes):
-    """Analizuje plik za pomocą zainstalowanego VeraPDF (Protokół Matterhorn)"""
+    """Analizuje plik za pomocą pliku JAR VeraPDF (Protokół Matterhorn)"""
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_pdf:
         tmp_pdf.write(file_bytes)
         tmp_pdf_path = tmp_pdf.name
 
-    exe_name = "verapdf.bat" if os.name == 'nt' else "verapdf"
-    verapdf_executable = os.path.join("verapdf-engine", exe_name) 
-    
+    # Odpalamy Javę bezpośrednio z naszego cudownego pliku JAR
     command = [
-        verapdf_executable, 
+        "java", "-jar", CLI_JAR_PATH,
         "--flavour", "ua1", 
         "--format", "mrr",  
         tmp_pdf_path
@@ -128,9 +59,13 @@ def run_verapdf_audit(file_bytes):
     try:
         process = subprocess.run(command, capture_output=True, text=True, check=True)
         xml_output = process.stdout
+    except subprocess.CalledProcessError as e:
+        os.remove(tmp_pdf_path)
+        # Jeśli Java rzuci błędem, pokażemy go na czerwono
+        return {"is_compliant": False, "errors": [{"rule": "Błąd Wykonania Javy", "description": e.stderr, "count": 1}]}
     except Exception as e:
         os.remove(tmp_pdf_path)
-        return {"is_compliant": False, "errors": [{"rule": "Błąd Silnika", "description": str(e), "count": 1}]}
+        return {"is_compliant": False, "errors": [{"rule": "Inny błąd", "description": str(e), "count": 1}]}
 
     errors_found = []
     is_compliant = False
