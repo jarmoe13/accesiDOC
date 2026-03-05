@@ -61,11 +61,12 @@ def run_verapdf_audit(file_bytes):
         xml_output = process.stdout
     except subprocess.CalledProcessError as e:
         os.remove(tmp_pdf_path)
-        # Jeśli Java rzuci błędem, pokażemy go na czerwono
-        return {"is_compliant": False, "errors": [{"rule": "Błąd Wykonania Javy", "description": e.stderr, "count": 1}]}
+        # TUTAJ JEST ZMIANA - Łapiemy wszystko jak leci!
+        pelny_blad = f"STDOUT: {e.stdout} | STDERR: {e.stderr}"
+        return {"is_compliant": False, "errors": [{"rule": "Logi Crashu Javy", "description": pelny_blad, "count": 1}]}
     except Exception as e:
         os.remove(tmp_pdf_path)
-        return {"is_compliant": False, "errors": [{"rule": "Inny błąd", "description": str(e), "count": 1}]}
+        return {"is_compliant": False, "errors": [{"rule": "Inny błąd Pythona", "description": str(e), "count": 1}]}
 
     errors_found = []
     is_compliant = False
